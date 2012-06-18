@@ -1,0 +1,972 @@
+--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 9.1.3
+-- Dumped by pg_dump version 9.1.3
+-- Started on 2012-04-08 19:51:14
+
+SET statement_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+
+--
+-- TOC entry 174 (class 3079 OID 11639)
+-- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
+--
+
+CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+
+
+--
+-- TOC entry 1948 (class 0 OID 0)
+-- Dependencies: 174
+-- Name: EXTENSION plpgsql; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
+
+
+SET search_path = public, pg_catalog;
+
+--
+-- TOC entry 188 (class 1255 OID 16538)
+-- Dependencies: 529 5
+-- Name: majplace(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION majplace() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	nb_place integer;
+	place_dmd integer;
+	px_e numeric(7,2);
+	px_a numeric(7,2);
+BEGIN
+	SELECT INTO nb_place nbplacerestant FROM voyage WHERE numvoy = NEW.numvoy;
+
+	place_dmd := NEW.nbenf + NEW.nbadu;
+
+	IF nb_place = 0 THEN
+		RAISE EXCEPTION 'Il ny a plus de place pour ce voyage';
+	ELSEIF place_dmd > nb_place THEN
+		RAISE EXCEPTION 'Il reste % places pour ce voyage.', nb_place;
+	END IF;
+
+	UPDATE voyage
+	SET nbplacerestant = nbplacerestant - place_dmd,
+	    nbplacereserve = nbplacereserve + place_dmd
+	WHERE numvoy = NEW.numvoy;
+
+	SELECT INTO px_a prixadu FROM voyage WHERE numvoy = NEW.numvoy;
+	SELECT INTO px_e prixenf FROM voyage WHERE numvoy = NEW.numvoy;
+	
+	IF NEW.ncli IS NOT NULL THEN
+		UPDATE client
+		SET cacli = cacli + NEW.nbenf * px_e + NEW.nbadu * px_a
+		WHERE ncli = NEW.ncli;
+	ELSE
+		UPDATE comite
+		SET cacom = cacom + NEW.nbenf * px_e + NEW.nbadu * px_a
+		WHERE numcom = NEW.numcom;
+	END IF;
+
+	RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.majplace() OWNER TO postgres;
+
+--
+-- TOC entry 189 (class 1255 OID 16540)
+-- Dependencies: 529 5
+-- Name: majplace2(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION majplace2() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	nb_place integer;
+	place_dmd integer;
+	diff_e integer;
+	diff_a integer;
+	px_e numeric(7,2);
+	px_a numeric(7,2);
+BEGIN
+	SELECT INTO nb_place nbplacerestant FROM voyage WHERE numvoy = NEW.numvoy;
+
+
+	diff_e :=  NEW.nbenf - OLD.nbenf;
+	diff_a :=  NEW.nbadu - OLD.nbadu;
+	place_dmd := diff_e + diff_a;
+
+	IF nb_place = 0 THEN
+		RAISE EXCEPTION 'Il n y a plus de place pour cce voyage.';
+	ELSEIF diff_e <> 0 OR diff_a <> 0 THEN
+
+		UPDATE voyage
+		SET nbplacerestant = nbplacerestant - place_dmd,
+		    nbplacereserve = nbplacereserve + place_dmd
+		WHERE numvoy = NEW.numvoy;
+
+		SELECT INTO px_a prixadu FROM voyage WHERE numvoy = NEW.numvoy;
+		SELECT INTO px_e prixenf FROM voyage WHERE numvoy = NEW.numvoy;
+		
+		px_a := px_a * diff_a;
+		px_e := px_e * diff_e;
+
+		IF NEW.ncli IS NOT NULL THEN
+			UPDATE client
+			SET cacli = cacli + px_a + px_e
+			WHERE ncli = NEW.ncli;
+		ELSE
+			UPDATE comite
+			SET cacom = cacom + px_a + px_e
+			WHERE numcom = NEW.numcom;
+		END IF;
+	END IF;
+
+	RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.majplace2() OWNER TO postgres;
+
+--
+-- TOC entry 190 (class 1255 OID 16542)
+-- Dependencies: 5 529
+-- Name: majplace3(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION majplace3() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	nb_place integer;
+	px_e numeric(7,2);
+	px_a numeric(7,2);
+BEGIN
+	nb_place := OLD.nbenf + OLD.nbadu;
+
+	UPDATE voyage
+	SET nbplacerestant = nbplacerestant + nb_place,
+	    nbplacereserve = nbplacereserve - nb_place
+	WHERE numvoy = OLD.numvoy;
+
+	SELECT INTO px_a prixadu FROM voyage WHERE numvoy = OLD.numvoy;
+	SELECT INTO px_e prixenf FROM voyage WHERE numvoy = OLD.numvoy;
+
+	px_a := px_a * OLD.nbadu;
+	px_e := px_e * OLD.nbenf;
+
+	IF OLD.ncli IS NOT NULL THEN
+		UPDATE client
+		SET cacli = cacli - px_a - px_e
+		WHERE ncli = OLD.ncli;
+	ELSE
+		UPDATE comite
+		SET cacom = cacom - px_a - px_e
+		WHERE numcom = OLD.numcom;
+	END IF;
+
+	INSERT INTO annulation SELECT OLD.*;
+
+	RETURN OLD;
+END;
+$$;
+
+
+ALTER FUNCTION public.majplace3() OWNER TO postgres;
+
+--
+-- TOC entry 186 (class 1255 OID 16533)
+-- Dependencies: 529 5
+-- Name: majvoyage(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION majvoyage() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+IF new.prixenf != old.prixenf OR new.prixenf != old.prixenf THEN
+	RAISE EXCEPTION 'Les prix des voyages ne sont pas modifiable ';
+ELSE
+	return NEW;
+END IF;
+END;
+$$;
+
+
+ALTER FUNCTION public.majvoyage() OWNER TO postgres;
+
+--
+-- TOC entry 192 (class 1255 OID 16575)
+-- Dependencies: 529 5
+-- Name: nbetapes(integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION nbetapes(voy integer) RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	nb_etape integer;
+BEGIN
+	SELECT INTO nb_etape COUNT(*) FROM etapes WHERE numvoy = voy;
+	RETURN nb_etape;
+END;
+$$;
+
+
+ALTER FUNCTION public.nbetapes(voy integer) OWNER TO postgres;
+
+--
+-- TOC entry 191 (class 1255 OID 16573)
+-- Dependencies: 5 529
+-- Name: suppres(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION suppres() RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	DELETE FROM reservation WHERE etatres = 0 AND current_date - dateres > 7;
+	RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION public.suppres() OWNER TO postgres;
+
+--
+-- TOC entry 187 (class 1255 OID 16535)
+-- Dependencies: 529 5
+-- Name: verifxt(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION verifxt() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+IF new.ncli IS NOT NULL AND new.numcom IS NOT NULL THEN
+	RAISE EXCEPTION 'Vous devez renseigner un client ou un comité';
+ELSIF new.ncli IS NULL AND new.numcom IS NULL THEN
+	RAISE EXCEPTION 'Vous devez renseigner au moins un client ou au moins un comité';
+END IF;
+return NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.verifxt() OWNER TO postgres;
+
+SET default_tablespace = '';
+
+SET default_with_oids = false;
+
+--
+-- TOC entry 172 (class 1259 OID 16546)
+-- Dependencies: 1903 1904 1905 1906 5
+-- Name: annulation; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE annulation (
+    numres integer NOT NULL,
+    dateres date NOT NULL,
+    nbenf integer,
+    nbadu integer,
+    etatres integer,
+    ncli integer,
+    numcom integer,
+    numvoy integer,
+    datesup date DEFAULT ('now'::text)::date NOT NULL,
+    CONSTRAINT a_check_etatres CHECK (((etatres >= 0) AND (etatres <= 2))),
+    CONSTRAINT a_check_nbadu CHECK ((nbadu > 0)),
+    CONSTRAINT a_check_nbenf CHECK ((nbenf >= 0))
+);
+
+
+ALTER TABLE public.annulation OWNER TO postgres;
+
+--
+-- TOC entry 171 (class 1259 OID 16544)
+-- Dependencies: 172 5
+-- Name: annulation_numres_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE annulation_numres_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.annulation_numres_seq OWNER TO postgres;
+
+--
+-- TOC entry 1949 (class 0 OID 0)
+-- Dependencies: 171
+-- Name: annulation_numres_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE annulation_numres_seq OWNED BY annulation.numres;
+
+
+--
+-- TOC entry 1950 (class 0 OID 0)
+-- Dependencies: 171
+-- Name: annulation_numres_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('annulation_numres_seq', 1, false);
+
+
+--
+-- TOC entry 162 (class 1259 OID 16410)
+-- Dependencies: 1891 5
+-- Name: client; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE client (
+    ncli integer NOT NULL,
+    precli character varying(25) NOT NULL,
+    adr1cli character varying(30) NOT NULL,
+    adr2cli character varying(30) NOT NULL,
+    cpcli character varying(5) NOT NULL,
+    vilcli character varying(25) NOT NULL,
+    telcli character varying(14) NOT NULL,
+    cacli numeric(8,2) DEFAULT 0 NOT NULL,
+    nomcli character varying(25) NOT NULL
+);
+
+
+ALTER TABLE public.client OWNER TO postgres;
+
+--
+-- TOC entry 161 (class 1259 OID 16408)
+-- Dependencies: 5 162
+-- Name: client_ncli_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE client_ncli_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.client_ncli_seq OWNER TO postgres;
+
+--
+-- TOC entry 1951 (class 0 OID 0)
+-- Dependencies: 161
+-- Name: client_ncli_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE client_ncli_seq OWNED BY client.ncli;
+
+
+--
+-- TOC entry 1952 (class 0 OID 0)
+-- Dependencies: 161
+-- Name: client_ncli_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('client_ncli_seq', 1, false);
+
+
+--
+-- TOC entry 164 (class 1259 OID 16421)
+-- Dependencies: 1893 5
+-- Name: comite; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE comite (
+    numcom integer NOT NULL,
+    rscom character varying(30) NOT NULL,
+    adr1com character varying(30) NOT NULL,
+    adr2com character varying(30) NOT NULL,
+    cpcom character varying(5) NOT NULL,
+    vilcom character varying(25) NOT NULL,
+    respcom character varying(20) NOT NULL,
+    cacli numeric(8,2) DEFAULT 0
+);
+
+
+ALTER TABLE public.comite OWNER TO postgres;
+
+--
+-- TOC entry 163 (class 1259 OID 16419)
+-- Dependencies: 164 5
+-- Name: comite_numcom_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE comite_numcom_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.comite_numcom_seq OWNER TO postgres;
+
+--
+-- TOC entry 1953 (class 0 OID 0)
+-- Dependencies: 163
+-- Name: comite_numcom_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE comite_numcom_seq OWNED BY comite.numcom;
+
+
+--
+-- TOC entry 1954 (class 0 OID 0)
+-- Dependencies: 163
+-- Name: comite_numcom_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('comite_numcom_seq', 1, false);
+
+
+--
+-- TOC entry 168 (class 1259 OID 16464)
+-- Dependencies: 5
+-- Name: etapes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE etapes (
+    numvoy_fk integer NOT NULL,
+    numeta integer NOT NULL,
+    dateta date NOT NULL,
+    descripeta character varying(255) NOT NULL
+);
+
+
+ALTER TABLE public.etapes OWNER TO postgres;
+
+--
+-- TOC entry 167 (class 1259 OID 16462)
+-- Dependencies: 5 168
+-- Name: etapes_numeta_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE etapes_numeta_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.etapes_numeta_seq OWNER TO postgres;
+
+--
+-- TOC entry 1955 (class 0 OID 0)
+-- Dependencies: 167
+-- Name: etapes_numeta_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE etapes_numeta_seq OWNED BY etapes.numeta;
+
+
+--
+-- TOC entry 1956 (class 0 OID 0)
+-- Dependencies: 167
+-- Name: etapes_numeta_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('etapes_numeta_seq', 1, false);
+
+
+--
+-- TOC entry 170 (class 1259 OID 16506)
+-- Dependencies: 1898 1899 1900 1901 5
+-- Name: reservation; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE reservation (
+    numres integer NOT NULL,
+    dateres date DEFAULT ('now'::text)::date NOT NULL,
+    nbenf integer,
+    nbadu integer,
+    etatres integer,
+    ncli integer,
+    numcom integer,
+    numvoy integer,
+    CONSTRAINT check_etatres CHECK (((etatres >= 0) AND (etatres <= 2))),
+    CONSTRAINT check_nbadu CHECK ((nbadu > 0)),
+    CONSTRAINT check_nbenf CHECK ((nbenf >= 0))
+);
+
+
+ALTER TABLE public.reservation OWNER TO postgres;
+
+--
+-- TOC entry 169 (class 1259 OID 16504)
+-- Dependencies: 5 170
+-- Name: reservation_numres_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE reservation_numres_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.reservation_numres_seq OWNER TO postgres;
+
+--
+-- TOC entry 1957 (class 0 OID 0)
+-- Dependencies: 169
+-- Name: reservation_numres_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE reservation_numres_seq OWNED BY reservation.numres;
+
+
+--
+-- TOC entry 1958 (class 0 OID 0)
+-- Dependencies: 169
+-- Name: reservation_numres_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('reservation_numres_seq', 1, false);
+
+
+--
+-- TOC entry 166 (class 1259 OID 16454)
+-- Dependencies: 1895 5
+-- Name: voyage; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE voyage (
+    numvoy integer NOT NULL,
+    prixenf integer NOT NULL,
+    prixadu integer NOT NULL,
+    nbplacereserve integer NOT NULL,
+    nbplacerestant integer,
+    libvoy character varying(80) NOT NULL,
+    datedep date NOT NULL,
+    duree integer NOT NULL,
+    CONSTRAINT verif_voy CHECK (((nbplacereserve >= 0) AND (nbplacerestant >= 0)))
+);
+
+
+ALTER TABLE public.voyage OWNER TO postgres;
+
+--
+-- TOC entry 173 (class 1259 OID 16576)
+-- Dependencies: 1889 5
+-- Name: vlistevoyage; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW vlistevoyage AS
+    SELECT voyage.libvoy AS "Libellé", nbetapes(voyage.numvoy) AS "Nb étapes", voyage.datedep AS "Date départ", (voyage.datedep + voyage.duree) AS "Date retour", (voyage.nbplacereserve + voyage.nbplacerestant) AS "Nb places prévues" FROM voyage;
+
+
+ALTER TABLE public.vlistevoyage OWNER TO postgres;
+
+--
+-- TOC entry 165 (class 1259 OID 16452)
+-- Dependencies: 166 5
+-- Name: voyage_numvoy_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE voyage_numvoy_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.voyage_numvoy_seq OWNER TO postgres;
+
+--
+-- TOC entry 1959 (class 0 OID 0)
+-- Dependencies: 165
+-- Name: voyage_numvoy_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE voyage_numvoy_seq OWNED BY voyage.numvoy;
+
+
+--
+-- TOC entry 1960 (class 0 OID 0)
+-- Dependencies: 165
+-- Name: voyage_numvoy_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('voyage_numvoy_seq', 1, false);
+
+
+--
+-- TOC entry 1902 (class 2604 OID 16549)
+-- Dependencies: 171 172 172
+-- Name: numres; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY annulation ALTER COLUMN numres SET DEFAULT nextval('annulation_numres_seq'::regclass);
+
+
+--
+-- TOC entry 1890 (class 2604 OID 16413)
+-- Dependencies: 162 161 162
+-- Name: ncli; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY client ALTER COLUMN ncli SET DEFAULT nextval('client_ncli_seq'::regclass);
+
+
+--
+-- TOC entry 1892 (class 2604 OID 16424)
+-- Dependencies: 163 164 164
+-- Name: numcom; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY comite ALTER COLUMN numcom SET DEFAULT nextval('comite_numcom_seq'::regclass);
+
+
+--
+-- TOC entry 1896 (class 2604 OID 16467)
+-- Dependencies: 168 167 168
+-- Name: numeta; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY etapes ALTER COLUMN numeta SET DEFAULT nextval('etapes_numeta_seq'::regclass);
+
+
+--
+-- TOC entry 1897 (class 2604 OID 16509)
+-- Dependencies: 170 169 170
+-- Name: numres; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY reservation ALTER COLUMN numres SET DEFAULT nextval('reservation_numres_seq'::regclass);
+
+
+--
+-- TOC entry 1894 (class 2604 OID 16457)
+-- Dependencies: 166 165 166
+-- Name: numvoy; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY voyage ALTER COLUMN numvoy SET DEFAULT nextval('voyage_numvoy_seq'::regclass);
+
+
+--
+-- TOC entry 1942 (class 0 OID 16546)
+-- Dependencies: 172
+-- Data for Name: annulation; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY annulation (numres, dateres, nbenf, nbadu, etatres, ncli, numcom, numvoy, datesup) FROM stdin;
+\.
+
+
+--
+-- TOC entry 1937 (class 0 OID 16410)
+-- Dependencies: 162
+-- Data for Name: client; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY client (ncli, precli, adr1cli, adr2cli, cpcli, vilcli, telcli, cacli, nomcli) FROM stdin;
+1	paul	3 rue Mozart		13000	Marseille	06-12-15-67-01	0.00	Dupont
+2	Jean	Résidence les genets	3 Av de la Californie	06400	Cannes	04-93-47-43-88	0.00	Bartoletti
+3	Christophe	1 av de la république		06400	Cannes		0.00	Demarais
+\.
+
+
+--
+-- TOC entry 1938 (class 0 OID 16421)
+-- Dependencies: 164
+-- Data for Name: comite; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY comite (numcom, rscom, adr1com, adr2com, cpcom, vilcom, respcom, cacli) FROM stdin;
+1	Université de la méditerrannée	Le Pharo		13000	Marseille	Mr Pirelli	0.00
+2	Hôpital de Gap	Comité dentreprise	Centre hospitalier de Gap 	05000	Gap	Mme Espitallier	0.00
+\.
+
+
+--
+-- TOC entry 1940 (class 0 OID 16464)
+-- Dependencies: 168
+-- Data for Name: etapes; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY etapes (numvoy_fk, numeta, dateta, descripeta) FROM stdin;
+1	1	2006-05-11	Vol Paris-Palma
+1	2	2006-05-12	Randonnée du puig major 
+1	3	2006-05-13	Vallée de balitx
+1	4	2006-05-14	Camino del archiduque
+1	5	2006-05-15	Randonnée vers Pollensa 
+1	6	2006-05-16	Canon de mortixt
+1	7	2006-05-17	Ascension de la massanella
+1	8	2006-05-18	Vol Palma-Paris
+2	1	2006-07-01	Vol Paris-Marrakech
+2	2	2006-07-02	Vallée de goudafa
+2	3	2006-07-03	tizi nguidi
+2	4	2006-07-04	Vallée de Tkent
+2	5	2006-07-05	Vallée Azaden
+2	6	2006-07-06	Vallée Aït Mizane
+2	7	2006-07-07	Imlil
+2	8	2006-07-08	Vol Marrakech-Paris
+\.
+
+
+--
+-- TOC entry 1941 (class 0 OID 16506)
+-- Dependencies: 170
+-- Data for Name: reservation; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY reservation (numres, dateres, nbenf, nbadu, etatres, ncli, numcom, numvoy) FROM stdin;
+\.
+
+
+--
+-- TOC entry 1939 (class 0 OID 16454)
+-- Dependencies: 166
+-- Data for Name: voyage; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY voyage (numvoy, prixenf, prixadu, nbplacereserve, nbplacerestant, libvoy, datedep, duree) FROM stdin;
+1	1200	1800	27	23	Trekking à Majorque	2006-05-11	8
+2	1000	1550	12	8	Marche dans le parc\nnational du toubkal, Maroc 	2006-07-01	8
+\.
+
+
+--
+-- TOC entry 1922 (class 2606 OID 16557)
+-- Dependencies: 172 172 172
+-- Name: a_exclusion; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY annulation
+    ADD CONSTRAINT a_exclusion EXCLUDE USING btree (ncli WITH =, numcom WITH =);
+
+
+--
+-- TOC entry 1924 (class 2606 OID 16555)
+-- Dependencies: 172 172
+-- Name: annulation_pk; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY annulation
+    ADD CONSTRAINT annulation_pk PRIMARY KEY (numres);
+
+
+--
+-- TOC entry 1908 (class 2606 OID 16416)
+-- Dependencies: 162 162
+-- Name: cle_client; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY client
+    ADD CONSTRAINT cle_client PRIMARY KEY (ncli);
+
+
+--
+-- TOC entry 1912 (class 2606 OID 16427)
+-- Dependencies: 164 164
+-- Name: cle_comite; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY comite
+    ADD CONSTRAINT cle_comite PRIMARY KEY (numcom);
+
+
+--
+-- TOC entry 1916 (class 2606 OID 16469)
+-- Dependencies: 168 168 168
+-- Name: cle_etape; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY etapes
+    ADD CONSTRAINT cle_etape PRIMARY KEY (numeta, numvoy_fk);
+
+
+--
+-- TOC entry 1914 (class 2606 OID 16461)
+-- Dependencies: 166 166
+-- Name: cle_voyage; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY voyage
+    ADD CONSTRAINT cle_voyage PRIMARY KEY (numvoy);
+
+
+--
+-- TOC entry 1918 (class 2606 OID 16517)
+-- Dependencies: 170 170 170
+-- Name: exclusion; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY reservation
+    ADD CONSTRAINT exclusion EXCLUDE USING btree (ncli WITH =, numcom WITH =);
+
+
+--
+-- TOC entry 1920 (class 2606 OID 16515)
+-- Dependencies: 170 170
+-- Name: numres_fk; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY reservation
+    ADD CONSTRAINT numres_fk PRIMARY KEY (numres);
+
+
+--
+-- TOC entry 1910 (class 2606 OID 16418)
+-- Dependencies: 162 162
+-- Name: telephone; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY client
+    ADD CONSTRAINT telephone UNIQUE (telcli);
+
+
+--
+-- TOC entry 1934 (class 2620 OID 16539)
+-- Dependencies: 188 170
+-- Name: tmajplace; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tmajplace BEFORE INSERT ON reservation FOR EACH ROW EXECUTE PROCEDURE majplace();
+
+
+--
+-- TOC entry 1935 (class 2620 OID 16541)
+-- Dependencies: 189 170
+-- Name: tmajplace2; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tmajplace2 BEFORE UPDATE ON reservation FOR EACH ROW EXECUTE PROCEDURE majplace2();
+
+
+--
+-- TOC entry 1936 (class 2620 OID 16543)
+-- Dependencies: 190 170
+-- Name: tmajplace3; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tmajplace3 BEFORE DELETE ON reservation FOR EACH ROW EXECUTE PROCEDURE majplace3();
+
+
+--
+-- TOC entry 1932 (class 2620 OID 16534)
+-- Dependencies: 166 186
+-- Name: tmajvoyage; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tmajvoyage AFTER UPDATE ON voyage FOR EACH ROW EXECUTE PROCEDURE majvoyage();
+
+
+--
+-- TOC entry 1933 (class 2620 OID 16536)
+-- Dependencies: 187 170
+-- Name: tverifxt; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tverifxt AFTER INSERT OR UPDATE ON reservation FOR EACH ROW EXECUTE PROCEDURE verifxt();
+
+
+--
+-- TOC entry 1925 (class 2606 OID 16470)
+-- Dependencies: 1913 168 166
+-- Name: fk_etape; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY etapes
+    ADD CONSTRAINT fk_etape FOREIGN KEY (numvoy_fk) REFERENCES voyage(numvoy) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- TOC entry 1926 (class 2606 OID 16518)
+-- Dependencies: 1907 170 162
+-- Name: ncli_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY reservation
+    ADD CONSTRAINT ncli_fk FOREIGN KEY (ncli) REFERENCES client(ncli) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1929 (class 2606 OID 16558)
+-- Dependencies: 1907 172 162
+-- Name: ncli_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY annulation
+    ADD CONSTRAINT ncli_fk FOREIGN KEY (ncli) REFERENCES client(ncli) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1927 (class 2606 OID 16523)
+-- Dependencies: 1911 164 170
+-- Name: numcom_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY reservation
+    ADD CONSTRAINT numcom_fk FOREIGN KEY (numcom) REFERENCES comite(numcom) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1930 (class 2606 OID 16563)
+-- Dependencies: 172 164 1911
+-- Name: numcom_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY annulation
+    ADD CONSTRAINT numcom_fk FOREIGN KEY (numcom) REFERENCES comite(numcom) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1928 (class 2606 OID 16528)
+-- Dependencies: 1913 170 166
+-- Name: numvoy_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY reservation
+    ADD CONSTRAINT numvoy_fk FOREIGN KEY (numvoy) REFERENCES voyage(numvoy) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1931 (class 2606 OID 16568)
+-- Dependencies: 166 172 1913
+-- Name: numvoy_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY annulation
+    ADD CONSTRAINT numvoy_fk FOREIGN KEY (numvoy) REFERENCES voyage(numvoy) ON UPDATE CASCADE;
+
+
+--
+-- TOC entry 1947 (class 0 OID 0)
+-- Dependencies: 5
+-- Name: public; Type: ACL; Schema: -; Owner: postgres
+--
+
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM postgres;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+-- Completed on 2012-04-08 19:51:14
+
+--
+-- PostgreSQL database dump complete
+--
+
